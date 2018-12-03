@@ -2,15 +2,14 @@ import tensorflow as tf
 import cv2
 import numpy as np
 from openpose.network_mobilenet import MobilenetNetwork
+import config
 
 
 class OpenPose:
     def __init__(self, sess=None):
         self.sess = sess
-        self.input_width = 368
-        self.input_height = 368
         self.stage_level = 6
-        self.input_node = tf.placeholder(tf.float32, shape=(1, self.input_height, self.input_width, 3), name='image')
+        self.input_node = tf.placeholder(tf.float32, shape=(1, config.op_input_height, config.op_input_width, 3), name='image')
         self.first_time = True
         self.net = MobilenetNetwork({'image': self.input_node}, trainable=False, conv_width=0.75, conv_width2=0.50)
         self.graph = tf.get_default_graph()

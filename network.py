@@ -1,26 +1,18 @@
 import tensorflow as tf
+import config
+
 
 
 class activity_network:
-    def __init__(self, number_of_classes=49):
+    def __init__(self, number_of_classes):
         self.number_of_classes = number_of_classes
-        self.learning_rate = 0.1
-        self.gradient_clipping_norm = 1.0
-        self.c3d_dropout = 0.6
-        self.preLstm_dropout = 0.6
-        self.Lstm_dropout = 0.6
-        self.input_channels = 7
-        self.pre_size = 1024
-        self.C3d_Output_features = 256
-        self.next_fc = self.C3d_Output_features + number_of_classes
-        self.lstm_units = self.C3d_Output_features
-        self.Batch_size = 30
+        self.next_fc = config.C3d_Output_features + number_of_classes
 
         with tf.name_scope('Activity_Recognition_Network'):
 
             with tf.variable_scope('var_name'):
                 wc = {
-                    'wc1': self._variable_with_weight_decay('wc1', [3, 3, 3, self.input_channels, 64], 0.04, 0.00),
+                    'wc1': self._variable_with_weight_decay('wc1', [3, 3, 3, config.input_channels, 64], 0.04, 0.00),
                     'wc2': self._variable_with_weight_decay('wc2', [3, 3, 3, 64, 128], 0.04, 0.00),
                     'wc3a': self._variable_with_weight_decay('wc3a', [3, 3, 3, 128, 256], 0.04, 0.00),
                     'wc3b': self._variable_with_weight_decay('wc3b', [3, 3, 3, 256, 256], 0.04, 0.00),
@@ -39,30 +31,30 @@ class activity_network:
                     'bc5b': self._variable_with_weight_decay('bc5b', [512], 0.04, 0.0)}
                 wd_c = {
                     'wd_c1': self._variable_with_weight_decay('wd_c1', [8192, 2048], 0.04, 0.001),
-                    'wd_c2': self._variable_with_weight_decay('wd_c2', [2048, self.pre_size], 0.04, 0.002),
-                    'wd_cout': self._variable_with_weight_decay('wd_cout', [self.pre_size, self.number_of_classes], 0.04, 0.005)}
+                    'wd_c2': self._variable_with_weight_decay('wd_c2', [2048, config.pre_size], 0.04, 0.002),
+                    'wd_cout': self._variable_with_weight_decay('wd_cout', [config.pre_size, self.number_of_classes], 0.04, 0.005)}
                 bd_c = {
                     'bd_c1': self._variable_with_weight_decay('bd_c1', [2048], 0.04, 0.0),
-                    'bd_c2': self._variable_with_weight_decay('bd_c2', [self.pre_size], 0.04, 0.0),
+                    'bd_c2': self._variable_with_weight_decay('bd_c2', [config.pre_size], 0.04, 0.0),
                     'bd_cout': self._variable_with_weight_decay('bd_cout', [self.number_of_classes], 0.04, 0.0)}
                 wd_pL = {
                     'wd_pL1': self._variable_with_weight_decay('wd_pL1', [8192, 2048], 0.04, 0.001),
-                    'wd_pL2': self._variable_with_weight_decay('wd_pL2', [2048, self.pre_size], 0.04, 0.002),
-                    'wd_pLout': self._variable_with_weight_decay('wd_pLout', [self.pre_size, self.lstm_units], 0.04, 0.005)}
+                    'wd_pL2': self._variable_with_weight_decay('wd_pL2', [2048, config.pre_size], 0.04, 0.002),
+                    'wd_pLout': self._variable_with_weight_decay('wd_pLout', [config.pre_size, config.lstm_units], 0.04, 0.005)}
                 bd_pL = {
                     'bd_pL1': self._variable_with_weight_decay('bd_pL1', [2048], 0.04, 0.0),
-                    'bd_pL2': self._variable_with_weight_decay('bd_pL2', [self.pre_size], 0.04, 0.0),
-                    'bd_pLout': self._variable_with_weight_decay('bd_pLout', [self.lstm_units], 0.04, 0.0)}
+                    'bd_pL2': self._variable_with_weight_decay('bd_pL2', [config.pre_size], 0.04, 0.0),
+                    'bd_pLout': self._variable_with_weight_decay('bd_pLout', [config.lstm_units], 0.04, 0.0)}
                 wd_L = {
-                    'wd_pLout_multiply': self._variable_with_weight_decay('wd_pLout_multiply', [3*self.lstm_units, self.lstm_units * self.lstm_units], 0.04, 0.005),
-                    'wd_Lout': self._variable_with_weight_decay('wd_Lout', [self.lstm_units, self.number_of_classes], 0.04, 0.005),
+                    'wd_pLout_multiply': self._variable_with_weight_decay('wd_pLout_multiply', [3*config.lstm_units, config.lstm_units * config.lstm_units], 0.04, 0.005),
+                    'wd_Lout': self._variable_with_weight_decay('wd_Lout', [config.lstm_units, self.number_of_classes], 0.04, 0.005),
                     'wd_Lout_next': self._variable_with_weight_decay('wd_Lout_next', [self.next_fc, self.number_of_classes], 0.04, 0.005)}
                 bd_L = {
-                    'bd_pLout_multiply': self._variable_with_weight_decay('bd_pLout_multiply', [self.lstm_units * self.lstm_units], 0.04, 0.0),
+                    'bd_pLout_multiply': self._variable_with_weight_decay('bd_pLout_multiply', [config.lstm_units * config.lstm_units], 0.04, 0.0),
                     'bd_Lout': self._variable_with_weight_decay('bd_Lout', [self.number_of_classes], 0.04, 0.0),
                     'bd_Lout_next': self._variable_with_weight_decay('bd_Lout_next', [self.number_of_classes], 0.04, 0.0),
-                    'bd_Lout_2': self._variable_with_weight_decay('bd_Lout_2', [self.lstm_units], 0.04, 0.0),
-                    'bd_Lout_2_next': self._variable_with_weight_decay('bd_Lout_2_next', [self.lstm_units], 0.04, 0.0)}
+                    'bd_Lout_2': self._variable_with_weight_decay('bd_Lout_2', [config.lstm_units], 0.04, 0.0),
+                    'bd_Lout_2_next': self._variable_with_weight_decay('bd_Lout_2_next', [config.lstm_units], 0.04, 0.0)}
 
             with tf.name_scope("Input"):
                 self.input_batch = tf.placeholder(tf.float32, shape=(None, None, None, None, None), name="Input")
@@ -121,10 +113,10 @@ class activity_network:
                 reshape_2_cd = tf.contrib.layers.flatten(reshape_1_cd)
 
                 dense1_cd = tf.nn.relu(tf.matmul(reshape_2_cd, wd_c['wd_c1']) + bd_c['bd_c1'], name='fc_c1')
-                dense1_cd = tf.nn.dropout(dense1_cd, self.c3d_dropout)
+                dense1_cd = tf.nn.dropout(dense1_cd, config.c3d_dropout)
 
                 dense2_cd = tf.nn.relu(tf.matmul(dense1_cd, wd_c['wd_c2']) + bd_c['bd_c2'], name='fc_c2')
-                dense2_cd = tf.nn.dropout(dense2_cd, self.c3d_dropout)
+                dense2_cd = tf.nn.dropout(dense2_cd, config.c3d_dropout)
 
                 out_cd = tf.matmul(dense2_cd, wd_c['wd_cout']) + bd_c['bd_cout']
 
@@ -138,16 +130,16 @@ class activity_network:
                 reshape_2_pL = tf.contrib.layers.flatten(reshape_1_pL)
 
                 dense1_pL = tf.nn.relu(tf.matmul(reshape_2_pL, wd_pL['wd_pL1']) + bd_pL['bd_pL1'], name='fc_pL1')
-                dense1_pL = tf.nn.dropout(dense1_pL, self.preLstm_dropout)
+                dense1_pL = tf.nn.dropout(dense1_pL, config.preLstm_dropout)
 
                 dense2_pL = tf.nn.relu(tf.matmul(dense1_pL, wd_pL['wd_pL2']) + bd_pL['bd_pL2'], name='fc_pL2')
-                dense2_pL = tf.nn.dropout(dense2_pL, self.preLstm_dropout)
+                dense2_pL = tf.nn.dropout(dense2_pL, config.preLstm_dropout)
 
                 out_pL_0 = tf.matmul(dense2_pL, wd_pL['wd_pLout']) + bd_pL['bd_pLout']
                 out_pL = tf.expand_dims(out_pL_0, 1)
 
             with tf.name_scope("Lstm"):
-                encoder_cell = tf.contrib.rnn.LSTMCell(self.lstm_units)
+                encoder_cell = tf.contrib.rnn.LSTMCell(config.lstm_units)
                 state = tf.contrib.rnn.LSTMStateTuple(self.c_input, self.h_input)
                 decoder_output, decoder_state = tf.nn.dynamic_rnn(encoder_cell, out_pL,
                                                                   initial_state=state,
@@ -159,16 +151,16 @@ class activity_network:
             with tf.name_scope("Weight_Matrix_Generator"):
                 composedVec = tf.concat([out_pL_0, self.c_input, self.h_input], axis=1)
                 matrix_multiply = tf.matmul(composedVec, wd_L['wd_pLout_multiply']) + bd_L['bd_pLout_multiply']
-                matrix_multiply = tf.reshape(matrix_multiply, [tf.shape(matrix_multiply)[0], self.lstm_units, self.lstm_units])
+                matrix_multiply = tf.reshape(matrix_multiply, [tf.shape(matrix_multiply)[0], config.lstm_units, config.lstm_units])
 
             with tf.name_scope("Current_Lstm_classifier"):
-                out_L = tf.map_fn(lambda x: tf.squeeze(tf.matmul(tf.expand_dims(x[0], 0), x[1]) + bd_L['bd_Lout_2']), [decoder_output, matrix_multiply], dtype=tf.float32, parallel_iterations=self.Batch_size)
+                out_L = tf.map_fn(lambda x: tf.squeeze(tf.matmul(tf.expand_dims(x[0], 0), x[1]) + bd_L['bd_Lout_2']), [decoder_output, matrix_multiply], dtype=tf.float32, parallel_iterations=config.Batch_size)
                 out_L = tf.matmul(out_L, wd_L['wd_Lout']) + bd_L['bd_Lout']
                 self.softmax_Lstm = tf.nn.softmax(out_L)
                 self.predictions_Lstm = tf.argmax(input=self.softmax_Lstm, axis=1, name="classes")
 
             with tf.name_scope("Next_classifier"):
-                out_L_next = tf.map_fn(lambda x: tf.squeeze(tf.matmul(tf.expand_dims(x[0], 0), x[1]) + bd_L['bd_Lout_2_next']), [decoder_output, matrix_multiply], dtype=tf.float32, parallel_iterations=self.Batch_size)
+                out_L_next = tf.map_fn(lambda x: tf.squeeze(tf.matmul(tf.expand_dims(x[0], 0), x[1]) + bd_L['bd_Lout_2_next']), [decoder_output, matrix_multiply], dtype=tf.float32, parallel_iterations=config.Batch_size)
                 out_L_next = composedVec = tf.concat([out_L_next, self.softmax_Lstm], axis=1)
                 out_L_next = tf.matmul(out_L_next, wd_L['wd_Lout_next']) + bd_L['bd_Lout_next']
                 self.softmax_Lstm_next = tf.nn.softmax(out_L_next)
@@ -228,7 +220,7 @@ class activity_network:
                     learning_rate=learning_rate,
                     optimizer='Adam',
                     variables=Train_variable,
-                    clip_gradients=self.gradient_clipping_norm)
+                    clip_gradients=config.gradient_clipping_norm)
 
             with tf.name_scope('Summary'):
                 # tf.summary.histogram("c_out", self.c_out)

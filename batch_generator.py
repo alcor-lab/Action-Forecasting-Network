@@ -8,28 +8,21 @@ from poseEstimation import OpenPose
 from tqdm import tqdm
 import pickle
 from dataset_manager import Dataset
+import config
+
 
 pp = pprint.PrettyPrinter(indent=4)
 
 
 class IO_manager:
-    def __init__(self, Batch_size, frames_per_step, window_size, sess):
+    def __init__(self, sess):
         self.dataset = Dataset()
-        self.frames_per_step = frames_per_step
-        self.Batch_size = Batch_size
-        self.window_size = window_size
         self.num_classes = self.dataset.number_of_classes
         self.sess = sess
+        self.openpose = None
+
+    def start_openPose(self):
         self.openpose = OpenPose(self.sess)
-        self.height = self.openpose.input_height
-        self.width = self.openpose.input_width
-        self.out_H = 112
-        self.out_W = 112
-        self.hidden_states_dim = None
-        self.current_accuracy = 0
-        self.snow_ball = True
-        self.snow_ball_step_count = 0
-        self.snow_ball_per_class = 10000
 
         if os.path.isfile('dataset/hidden_states_collection.pkl'):
             with open('dataset/hidden_states_collection.pkl', 'rb') as f:
@@ -63,7 +56,7 @@ class IO_manager:
 
     def snow_ball_labels_calculator(self):
         size = 49
-        number_of_classes = int(self.snow_ball_step_count / self.snow_ball_per_class) + 3
+        number_of_classes = int(config.snow_ball_step_count / config.snow_ball_per_class) + 3
         if number_of_classes > size:
             size = number_of_classes
         return range(1, size)
@@ -79,14 +72,14 @@ class IO_manager:
             return cv2.flip( frame, -1 )
 
     def extract_one_input(self, video_path, segment, pbar):
-        one_input = np.zeros(shape=(self.frames_per_step, self.height, self.width, 7), dtype=float)
+        one_input = np.zeros(shape=(config.frames_per_step, config.op_input_height, config.op_input_width, 7), dtype=float)
         extracted_frames = {}
         frame_list = []
         try:
             video = cv2.VideoCapture(video_path)
             video.set(cv2.CAP_PROP_POS_AVI_RATIO, 1)
             length = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
-            linspace_frame = np.linspace(segment[0], segment[1], num=self.frames_per_step)
+            linspace_frame = np.linspace(segment[0], segment[1], num=config.frames_per_step)
             z = 0
             for frame in linspace_frame:
                 try:
@@ -102,7 +95,7 @@ class IO_manager:
                     else:
                         video.set(1, frame)
                         ret, im = video.read()
-                        im = cv2.resize(im, dsize=(self.height, self.width), interpolation=cv2.INTER_CUBIC)
+                        im = cv2.resize(im, dsize=(config.op_input_height, config.op_input_width), interpolation=cv2.INTER_CUBIC)
                         extracted_frames[frame] = {}
                         extracted_frames[frame]['im'] = im
                         gray = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
@@ -114,7 +107,7 @@ class IO_manager:
                     else:
                         video.set(1, frame_prev)
                         ret, im_prev = video.read()
-                        im_prev = cv2.resize(im_prev, dsize=(self.height, self.width), interpolation=cv2.INTER_CUBIC)
+                        im_prev = cv2.resize(im_prev, dsize=(config.op_input_height, config.op_input_width), interpolation=cv2.INTER_CUBIC)
                         extracted_frames[frame_prev] = {}
                         extracted_frames[frame_prev]['im'] = im_prev
                         gray_prev = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
@@ -147,7 +140,7 @@ class IO_manager:
         while Bool:
             try:
                 random.seed(time.time())
-                if self.snow_ball:
+                if config.snow_ball:
                     entry_label = random.choice(list(self.snow_ball_labels_calculator()))
                 else:
                     entry_label = random.choice(list(trimmed))
@@ -160,13 +153,13 @@ class IO_manager:
                 segment = entry_name['segment']
                 if segment[1] == segment[0]:
                     continue
-                min_end = (segment[0] + self.window_size)
+                min_end = (segment[0] + config.window_size)
                 random_end = min_end + random.random() * (segment[1] - min_end)
                 int_part = int(random_end / 1)
-                decimal_part = round(float(segment[1] % 1 / self.window_size)) * self.window_size
+                decimal_part = round(float(segment[1] % 1 / config.window_size)) * config.window_size
                 end_second = int_part + decimal_part
                 end_frame = int(round(end_second * fps))
-                start_frame = int(end_frame - self.window_size * fps + 1)
+                start_frame = int(end_frame - config.window_size * fps + 1)
                 if start_frame <= 1:
                     start_frame = 2
                 label_count = 0
@@ -202,14 +195,14 @@ class IO_manager:
         max_frame = max(list(untrimmed[path].keys()))
         Bool = True
         while Bool:
-            random_end = (self.window_size * fps) + random.random() * (float(max_frame / fps) - self.window_size)
+            random_end = (config.window_size * fps) + random.random() * (float(max_frame / fps) - config.window_size)
             int_part = int(random_end / 1)
-            decimal_part = round(float(random_end % 1 / self.window_size)) * self.window_size
+            decimal_part = round(float(random_end % 1 / config.window_size)) * config.window_size
             random_end = int_part + decimal_part
             end_frame = int(random_end * fps)
             if end_frame > max_frame:
                 continue
-            start_frame = int(end_frame - self.window_size * fps + 1)
+            start_frame = int(end_frame - config.window_size * fps + 1)
             not_zero_count = 0
             for frame in range(start_frame, end_frame):
                 # if frame not in untrimmed[path]:
@@ -219,7 +212,7 @@ class IO_manager:
                 label = untrimmed[path][frame]
                 if label is not 0:
                     not_zero_count += 1
-                    if not_zero_count >= self.window_size * fps * 0:
+                    if not_zero_count >= config.window_size * fps * 0:
                         Bool = False
                         break
         segment = [start_frame, end_frame]
@@ -242,11 +235,11 @@ class IO_manager:
         random.seed(time.time())
         segment_collection = []
         video_name_collection = []
-        batch = np.zeros(shape=(self.Batch_size, self.frames_per_step, self.height, self.width, 7), dtype=float)
-        labels = np.zeros(shape=(self.Batch_size, self.num_classes), dtype=int)
-        next_labels = np.zeros(shape=(self.Batch_size, self.num_classes), dtype=int)
-        c = np.zeros(shape=(self.Batch_size, self.hidden_states_dim), dtype=float)
-        h = np.zeros(shape=(self.Batch_size, self.hidden_states_dim), dtype=float)
+        batch = np.zeros(shape=(config.Batch_size, config.frames_per_step, config.op_input_height, config.op_input_width, 7), dtype=float)
+        labels = np.zeros(shape=(config.Batch_size, self.num_classes), dtype=int)
+        next_labels = np.zeros(shape=(config.Batch_size, self.num_classes), dtype=int)
+        c = np.zeros(shape=(config.Batch_size, config.hidden_states_dim), dtype=float)
+        h = np.zeros(shape=(config.Batch_size, config.hidden_states_dim), dtype=float)
 
         # Selecting correct dataset
         if Train:
@@ -265,7 +258,7 @@ class IO_manager:
             untrimmed_next = self.dataset.untrimmed_val_next
 
         j = 0
-        while j < self.Batch_size:
+        while j < config.Batch_size:
             if Trimmed:
                 segment, path = self.trimmed_segment_extractor(trimmed_dataset, untrimmed_dataset)
             else:
@@ -274,7 +267,7 @@ class IO_manager:
             one_input, frame_list = self.extract_one_input(path, segment, pbar)
             final_label = self.label_calculator(frame_list, path, untrimmed_dataset)
             next_final_label = self.label_calculator(frame_list, path, untrimmed_next)
-            self.snow_ball_step_count += 1
+            config.snow_ball_step_count += 1
 
             segment_collection.append(segment)
             video_name_collection.append(path)
@@ -296,10 +289,10 @@ class IO_manager:
     def test_generator(self, pbar, path, segment):
         random.seed(time.time())
         video_name_collection = []
-        batch = np.zeros(shape=(1, self.frames_per_step, self.height, self.width, 7), dtype=float)
+        batch = np.zeros(shape=(1, config.frames_per_step, config.op_input_height, config.op_input_width, 7), dtype=float)
         labels = np.zeros(shape=(1, self.num_classes), dtype=int)
-        c = np.zeros(shape=(1, self.hidden_states_dim), dtype=float)
-        h = np.zeros(shape=(1, self.hidden_states_dim), dtype=float)
+        c = np.zeros(shape=(1, config.hidden_states_dim), dtype=float)
+        h = np.zeros(shape=(1, config.hidden_states_dim), dtype=float)
 
         one_input, frame_list = self.extract_one_input(path, segment, pbar)
         final_label = self.label_calculator(frame_list, path, self.dataset.untrimmed_train_dataset)
@@ -327,7 +320,7 @@ class IO_manager:
         for k in range(len(X)):
             X_data = (X[k])['X']
             shape = X_data.shape
-            shrinked_X = np.zeros(shape=(shape[0], shape[1], self.out_H, self.out_W, shape[4]), dtype=float)
+            shrinked_X = np.zeros(shape=(shape[0], shape[1], config.out_H, config.out_W, shape[4]), dtype=float)
             for i in range(shape[0]):
                 for j in range(shape[1]):
                     pafMat, heatMat = self.openpose.compute_pose_frame(X_data[i, j, :, :, :3])
@@ -338,11 +331,11 @@ class IO_manager:
                     X_data[i, j, :, :, 3] = heatMat
                     X_data[i, j, :, :, 4] = pafMat
                     final_frame = X_data[i, j, :, :, :]
-                    shrinked_frame = cv2.resize(final_frame, dsize=(self.out_H, self.out_W), interpolation=cv2.INTER_CUBIC)
+                    shrinked_frame = cv2.resize(final_frame, dsize=(config.out_H, config.out_W), interpolation=cv2.INTER_CUBIC)
                     shrinked_frame = self.augment_data(shrinked_frame, augment)
                     shrinked_X[i, j, :, :, :] = shrinked_frame
-                    # # heatMat = cv2.resize(heatMat, dsize=(self.out_H, self.out_W), interpolation=cv2.INTER_CUBIC)
-                    # # pafMat = cv2.resize(pafMat, dsize=(self.out_H, self.out_W), interpolation=cv2.INTER_CUBIC)
+                    # # heatMat = cv2.resize(heatMat, dsize=(config.out_H, config.out_W), interpolation=cv2.INTER_CUBIC)
+                    # # pafMat = cv2.resize(pafMat, dsize=(config.out_H, config.out_W), interpolation=cv2.INTER_CUBIC)
                     # im = X_data[i, j, :, :, :3]/255
                     # flow = X_data[i, j, :, :, 5:]
                     # # hsv = np.zeros((im.shape[0], im.shape[1], im.shape[2]))

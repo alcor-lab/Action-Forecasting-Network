@@ -6,6 +6,8 @@ import random
 import pprint
 import time
 import pickle
+import config
+
 
 pp = pprint.PrettyPrinter(indent=4)
 
