@@ -13,6 +13,8 @@ load_pretrained_weigth = True
 model_filename = './checkpoint/Net_weigths.model'
 tot_steps = 1000000
 tasks = 10
+reuse_HSM = True
+Action = True
 
 #[Network]
 learning_rate = 0.1
@@ -33,5 +35,21 @@ current_accuracy = 0
 snow_ball = True
 snow_ball_step_count = 0
 snow_ball_per_class = 10000
+snow_ball_classes = 3
 op_input_width = 368
 op_input_height = 368
+show_pic = False
+
+#[Dataset]
+validation_fraction = 0.2
+
+#[Annotation]
+rebuild = False
+limit_classes = False
+classes_to_use = ['salat', 'cereal']
+ocado_annotation = 'dataset/ocado.json'
+breakfast_annotation = 'dataset/breakfast.json'
+acitivityNet_annotation = 'dataset/activity_net.v1-3.min.json'
+breakfast_path = 'dataset/Video/BreakfastII_15fps_qvga_sync'
+dataset = 'Breakfast'
+breakfast_fps = 15

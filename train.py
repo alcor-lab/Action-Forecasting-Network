@@ -15,8 +15,8 @@ tf_config = tf.ConfigProto(inter_op_parallelism_threads=config.inter_op_parallel
 tf_config.gpu_options.allow_growth = config.allow_growth
 
 def calculate_confusion_matrix(confusion, batch, y_pred, step, folder_name, id_to_label):
-    if not os.path.exists('./confusion_matrix/' + folder_name + '/'):
-        os.makedirs('./confusion_matrix/' + folder_name + '/')
+    if not os.path.exists('./results/confusion_matrix/' + folder_name + '/'):
+        os.makedirs('./results/confusion_matrix/' + folder_name + '/')
 
     y_true = np.argmax(batch, axis=1)
     shape_label = y_true.shape
@@ -46,12 +46,11 @@ def calculate_confusion_matrix(confusion, batch, y_pred, step, folder_name, id_t
         plt.title('Confusion matrix Step:' + str(step))
         plt.colorbar()
         if (step) % 1000 == 0:
-            plt.savefig('./confusion_matrix/' + folder_name + '/cm' + str(step) + '.png')
+            plt.savefig('./results/confusion_matrix/' + folder_name + '/cm' + str(step) + '.png')
         else:
-            plt.savefig('./confusion_matrix/' + folder_name + '/cm.png')
+            plt.savefig('./results/confusion_matrix/' + folder_name + '/cm.png')
         plt.gcf().clear()
     return confusion
-
 
 def train():
     with tf.Session(config=tf_config) as sess:
@@ -61,7 +60,6 @@ def train():
         IO_tool.start_openPose()
         IO_tool.openpose.load_openpose_weights()
         sess.run(Network.init)
-        trimmed = True
 
         train_writer = tf.summary.FileWriter("logdir/train", sess.graph)
         val_writer = tf.summary.FileWriter("logdir/val", sess.graph)
@@ -75,15 +73,15 @@ def train():
             print('original c3d loaded')
             Network.c3d_loader.restore(sess, config.c3d_ucf_weights)
 
-        step = 0
         confusion_train_Lstm = np.zeros((number_of_classes, number_of_classes))
         confusion_train_C3d = np.zeros((number_of_classes, number_of_classes))
         confusion_train_Next = np.zeros((number_of_classes, number_of_classes))
         confusion_val_Lstm = np.zeros((number_of_classes, number_of_classes))
         confusion_val_C3d = np.zeros((number_of_classes, number_of_classes))
         confusion_val_Next = np.zeros((number_of_classes, number_of_classes))
+        step = 0
+        trimmed = True
         training = True
-        Action = True
         with tf.name_scope('whole_saver'):
             whole_saver = tf.train.Saver()
         whole_saver.save(sess, config.model_filename, global_step=Network.global_step)
@@ -96,19 +94,9 @@ def train():
                     trimmed = False
                 pbar = tqdm(total=(config.tasks * config.Batch_size * config.frames_per_step + config.tasks), leave=False, desc='Batch Generation')
 
-                def multiprocess_batch(x):
-                    X, Y, c, h, video_name_collection, segment_collection, next_label = IO_tool.batch_generator(pbar, Train=training, Trimmed=trimmed, Action=Action)
-                    return {'X': X, 'Y': Y, 'c': c, 'h': h,
-                            'video_name_collection': video_name_collection,
-                            'segment_collection': segment_collection,
-                            'next_Y': next_label}
+                ready_batch = IO_tool.compute_batch(pbar, Train=training, Trimmed=trimmed, Action=config.Action)
 
-                pool = mp.Pool(processes=config.tasks)
-                ready_batch = pool.map(multiprocess_batch, range(0, config.tasks))
-                pbar.close()
-                pool.close()
-                pool.join()
-                ready_batch = IO_tool.add_pose(ready_batch, sess)
+                config.Action = not config.Action
 
                 for batch in ready_batch:
                     summary, t_op, y_Lstm, y_c3d, c_state, h_state, y_Next = sess.run([Network.merged, Network.train_op,
@@ -132,32 +120,17 @@ def train():
                     confusion_train_Next = calculate_confusion_matrix(confusion_train_Next, batch['Y'], y_Next, (step + 1) * config.Batch_size, 'next', IO_tool.dataset.id_to_label)
 
                     step = step + 1
-                    Action = not Action
                     train_writer.add_summary(summary, (step) * config.Batch_size)
                     pbar_whole.update(config.Batch_size)
 
-                    real_step = (step) * config.Batch_size
-                    if real_step % 10000 == 0 and real_step > 0:
-                        IO_tool.dataset.generate_dataset()
+                    real_step = step*config.Batch_size
                     if real_step % 1000 == 0 or (real_step + 1) == config.tot_steps:
                         validation = True
                         if validation:
                             val_step = step
                             pbar_val = tqdm(total=(config.tasks * config.Batch_size * config.frames_per_step + config.tasks), leave=False, desc='Validation Generation')
 
-                            def validation_batch(x):
-                                X, Y, c, h, video_name_collection, segment_collection, next_label = IO_tool.batch_generator(pbar_val, Train=False, Trimmed=trimmed, Action=Action)
-                                return {'X': X, 'Y': Y, 'c': c, 'h': h,
-                                        'video_name_collection': video_name_collection,
-                                        'segment_collection': segment_collection,
-                                        'next_Y': next_label}
-
-                            pool = mp.Pool(processes=config.tasks)
-                            ready_batch = pool.map(validation_batch, range(0, config.tasks))
-                            pbar_val.close()
-                            pool.close()
-                            pool.join()
-                            val_batch = IO_tool.add_pose(ready_batch, sess, augment=False)
+                            val_batch = IO_tool.compute_batch(pbar, Train=False, Trimmed=trimmed, Action=config.Action, augment=False)
 
                             for batch in val_batch:
                                 summary, y_Lstm, y_c3d, c_state, h_state, y_Next = sess.run([Network.merged,

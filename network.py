@@ -85,24 +85,24 @@ class activity_network:
                 with tf.name_scope("Conv"):
                     conv3 = self.conv3d('conv3a', pool2, wc['wc3a'], bc['bc3a'])
                     conv3 = tf.nn.leaky_relu(conv3, name='relu3a')
-                    # conv3 = self.conv3d('conv3b', conv3, wc['wc3b'], bc['bc3b'])
-                    # conv3 = tf.nn.leaky_relu(conv3, name='relu3b')
+                    conv3 = self.conv3d('conv3b', conv3, wc['wc3b'], bc['bc3b'])
+                    conv3 = tf.nn.leaky_relu(conv3, name='relu3b')
                     pool3 = self.max_pool('pool3', conv3, k=2)
 
                 # Convolution Layer
                 with tf.name_scope("Conv"):
                     conv4 = self.conv3d('conv4a', pool3, wc['wc4a'], bc['bc4a'])
                     conv4 = tf.nn.leaky_relu(conv4, name='relu4a')
-                    # conv4 = self.conv3d('conv4b', conv4, wc['wc4b'], bc['bc4b'])
-                    # conv4 = tf.nn.leaky_relu(conv4, name='relu4b')
+                    conv4 = self.conv3d('conv4b', conv4, wc['wc4b'], bc['bc4b'])
+                    conv4 = tf.nn.leaky_relu(conv4, name='relu4b')
                     pool4 = self.max_pool('pool4', conv4, k=2)
 
                 # Convolution Layer
                 with tf.name_scope("Conv"):
                     conv5 = self.conv3d('conv5a', pool4, wc['wc5a'], bc['bc5a'])
                     self.conv5 = tf.nn.leaky_relu(conv5, name='relu5a')
-                    # conv5 = self.conv3d('conv5b', conv5, wc['wc5b'], bc['bc5b'])
-                    # self.conv5 = tf.nn.leaky_relu(conv5, name='relu5b')
+                    conv5 = self.conv3d('conv5b', conv5, wc['wc5b'], bc['bc5b'])
+                    self.conv5 = tf.nn.leaky_relu(conv5, name='relu5b')
                     pool5 = self.max_pool('pool5', self.conv5, k=2)
 
                 c3d_output = pool5
@@ -205,8 +205,8 @@ class activity_network:
                 cross_entropy_Next = cross_entropy_Next
 
             with tf.name_scope("Global_Loss"):
-                cross_entropy = (cross_entropy_Next + cross_entropy_Lstm)/2
-                # cross_entropy = (accuracy_c3d)*((accuracy_Lstm)*cross_entropy_Next + (1 - accuracy_Lstm)*cross_entropy_Lstm) + (1 - accuracy_c3d) * cross_entropy_c3d
+                # cross_entropy = (cross_entropy_Next + cross_entropy_Lstm)/2
+                cross_entropy = (accuracy_c3d)*((accuracy_Lstm)*cross_entropy_Next + (1 - accuracy_Lstm)*cross_entropy_Lstm) + (1 - accuracy_c3d) * cross_entropy_c3d
 
             with tf.name_scope("Optimizer"):
                 Train_variable = [v for v in variables if 'Openpose' not in v.name.split('/')[0]]

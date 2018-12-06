@@ -7,6 +7,7 @@ import pprint
 import time
 import pickle
 import config
+from annotation_generator import Annotation
 
 
 pp = pprint.PrettyPrinter(indent=4)
@@ -15,25 +16,27 @@ pp = pprint.PrettyPrinter(indent=4)
 class Dataset:
     def __init__(self):
 
-        if os.path.isfile('dataset/label_to_id.pkl') and os.path.isfile('dataset/id_to_label.pkl'):
+        self.whole_dataset = Annotation().Dataset
+
+        if os.path.isfile('dataset/label_to_id.pkl') and os.path.isfile('dataset/id_to_label.pkl') and not config.rebuild:
             self.label_to_id = self.load_dataset_obj('label_to_id')
             self.id_to_label = self.load_dataset_obj('id_to_label')
         else:
             self.label_to_id, self.id_to_label = self.create_labels_mappings()
             self.save_dataset_obj(self.label_to_id, 'label_to_id')
             self.save_dataset_obj(self.id_to_label, 'id_to_label')
-
         self.number_of_classes = len(self.id_to_label)
-        pp.pprint(self.label_to_id)
-        # pp.pprint(self.number_of_classes)
+        pp.pprint(self.id_to_label)
 
         if (os.path.isfile('dataset/trimmed_train_dataset.pkl') and
                 os.path.isfile('dataset/trimmed_val_dataset.pkl') and
                 os.path.isfile('dataset/untrimmed_train_dataset.pkl') and
                 os.path.isfile('dataset/untrimmed_val_dataset.pkl') and
                 os.path.isfile('dataset/untrimmed_train_next.pkl') and
-                os.path.isfile('dataset/untrimmed_val_next.pkl')):
+                os.path.isfile('dataset/untrimmed_val_next.pkl') and
+                not config.rebuild):
 
+            print(not config.rebuild)
             self.trimmed_train_dataset = self.load_dataset_obj('trimmed_train_dataset')
             self.trimmed_val_dataset = self.load_dataset_obj('trimmed_val_dataset')
             self.trimmed_train_next = self.load_dataset_obj('trimmed_train_next')
@@ -46,10 +49,8 @@ class Dataset:
             self.generate_dataset()
 
     def generate_dataset(self):
-        self.validation_fraction = 0.02
-        self.whole_dataset = self.load_origianl_dataset(whichDataset='Breakfast')
+        self.validation_fraction = config.validation_fraction
         self.Train_dataset, self.Val_dataset = self.split_dataset()
-        pp.pprint(self.Val_dataset.keys())
         self.untrimmed_train_dataset = self.create_untrimmed_collection(self.Train_dataset, next=False)
         self.untrimmed_val_dataset = self.create_untrimmed_collection(self.Val_dataset, next=False)
         self.untrimmed_train_next = self.create_untrimmed_collection(self.Train_dataset, next=True)
@@ -66,52 +67,6 @@ class Dataset:
         self.save_dataset_obj(self.untrimmed_val_dataset, 'untrimmed_val_dataset')
         self.save_dataset_obj(self.untrimmed_train_next, 'untrimmed_train_next')
         self.save_dataset_obj(self.untrimmed_val_next, 'untrimmed_val_next')
-
-    def load_origianl_dataset(self, whichDataset):
-        if whichDataset is 'Ocado':
-            json_data = open('dataset/temp.json').read()
-            Dataset = json.loads(json_data)
-
-            json_data_2 = open('dataset/temp2.json').read()
-            Dataset_2 = json.loads(json_data_2)
-
-            Dataset.update(Dataset_2)
-        elif whichDataset is 'Breakfast':
-            allow = ['coffee', 'cereals', 'milk'] #, 'scrambledegg', 'salat']
-            json_data = open('dataset/Breakfast.json').read()
-            Dataset = json.loads(json_data)
-            new_Dataset = {}
-            azioni = []
-            for video in Dataset.keys():
-                for annotation in Dataset[video]:
-                    # print(annotation['activity'])
-                    if annotation['activity'] in allow:
-                        if annotation['label'] not in azioni:
-                            azioni.append(annotation['label'])
-                        if video not in new_Dataset:
-                            new_Dataset[video]=[]
-                        annotation['milliseconds'][0]=annotation['milliseconds'][0]*1000
-                        annotation['milliseconds'][1]=annotation['milliseconds'][1]*1000
-                        new_Dataset[video].append(annotation)
-            Dataset = new_Dataset
-            # pp.pprint(azioni)
-        elif whichDataset is 'ActivityNet':
-            json_data = open('dataset/activity_net.v1-3.min.json').read()
-            original_dataset = json.loads(json_data)['database']
-            Dataset = {}
-            for video in original_dataset.keys():
-                for annotation in original_dataset[video]['annotations']:
-                    segment = annotation['segment']
-                    if segment[1] > segment[0] and segment[1] <= original_dataset[video]['duration']:
-                        new_name = video + '.mp4'
-                        Dataset[new_name] = []
-                        new_entry = {}
-                        new_entry['label'] = annotation['label']
-                        segment = annotation['segment']
-                        millisecond_segment = [int(segment[0]) * 1000, int(segment[1]) * 1000]
-                        new_entry['milliseconds'] = millisecond_segment
-                        Dataset[new_name].append(new_entry)
-        return Dataset
 
     def split_dataset(self):
         dataset_train = self.whole_dataset
@@ -151,8 +106,15 @@ class Dataset:
         for root, dirs, files in os.walk('dataset'):
             for fl in files:
                 path = root + '/' + fl
-                if fl in dataset.keys() or fl.split('.')[0] in dataset.keys():
-                    for annotation in dataset[fl]:
+                is_dataset = False
+                if path in dataset.keys():
+                    key = path
+                    is_dataset = True
+                elif fl in dataset.keys():
+                    key = fl
+                    is_dataset = True
+                if is_dataset:
+                    for annotation in dataset[key]:
                         if annotation[whatLabel] in self.label_to_id.keys():
                             label = annotation[whatLabel]
                             segment = annotation['milliseconds']
@@ -167,11 +129,18 @@ class Dataset:
 
     def create_untrimmed_collection(self, dataset, next):
         collection = {}
-        # print('untrimmed dataset generation')
         iter_count = 0
         for root, dirs, files in os.walk('dataset'):
             for fl in files:
-                if fl in dataset.keys():
+                path = root + '/' + fl
+                is_dataset = False
+                if path in dataset.keys():
+                    key = path
+                    is_dataset = True
+                elif fl in dataset.keys():
+                    key = fl
+                    is_dataset = True
+                if is_dataset:
                     iter_count += 1
 
         pbar = tqdm(total=(iter_count), leave=False, desc='Generating untrimmed dataset')
@@ -182,7 +151,15 @@ class Dataset:
 
         for root, dirs, files in os.walk('dataset'):
             for fl in files:
-                if fl in dataset.keys():
+                path = root + '/' + fl
+                is_dataset = False
+                if path in dataset.keys():
+                    key = path
+                    is_dataset = True
+                elif fl in dataset.keys():
+                    key = fl
+                    is_dataset = True
+                if is_dataset:
                     path = root + '/' + fl
                     video = cv2.VideoCapture(path)
                     video.set(cv2.CAP_PROP_POS_AVI_RATIO, 1)
@@ -196,7 +173,7 @@ class Dataset:
                         frame = frame + 1
                         frame_in_msec = (frame / float(fps)) * 1000
                         label = 'NULL'
-                        for annotation in dataset[fl]:
+                        for annotation in dataset[key]:
                             segment = annotation['milliseconds']
                             if frame_in_msec <= segment[1] and frame_in_msec >= segment[0]:
                                 if annotation[whatLabel] in self.label_to_id.keys():
