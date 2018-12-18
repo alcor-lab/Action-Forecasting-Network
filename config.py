@@ -4,7 +4,7 @@ inter_op_parallelism_threads=7
 allow_growth = True
 
 #[Train]
-c3d_ucf_weights = "./checkpoint/sports1m_finetuning_ucf101.model"
+c3d_ucf_weights = "sports1m_finetuning_ucf101.model"
 Batch_size = 20
 frames_per_step = 6
 window_size = 1
@@ -12,7 +12,7 @@ load_previous_weigth = True
 load_pretrained_weigth = True
 model_filename = './checkpoint/Net_weigths.model'
 tot_steps = 1000000
-tasks = 10
+tasks = 6
 reuse_HSM = True
 Action = True
 
@@ -32,9 +32,9 @@ out_H = 112
 out_W = 112
 hidden_states_dim = lstm_units
 current_accuracy = 0
-snow_ball = True
+snow_ball = False
 snow_ball_step_count = 0
-snow_ball_per_class = 10000
+snow_ball_per_class = 2000
 snow_ball_classes = 3
 op_input_width = 368
 op_input_height = 368
@@ -44,9 +44,9 @@ show_pic = False
 validation_fraction = 0.2
 
 #[Annotation]
-rebuild = False
-limit_classes = False
-classes_to_use = ['salat', 'cereal']
+rebuild = True
+limit_classes = True
+classes_to_use = ['milk', 'caffe']
 ocado_annotation = 'dataset/ocado.json'
 breakfast_annotation = 'dataset/breakfast.json'
 acitivityNet_annotation = 'dataset/activity_net.v1-3.min.json'

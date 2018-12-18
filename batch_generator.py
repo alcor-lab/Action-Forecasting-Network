@@ -28,20 +28,60 @@ class IO_manager:
             self.hidden_states_collection = {}
         self.hidden_states_statistics()
 
-    def compute_batch(self, pbar, Train, Trimmed, Action, augment=True):
+    def compute_batch(self, pbar, Devices, Train, Trimmed, Action, augment=True):
         def multiprocess_batch(x):
             X, Y, c, h, video_name_collection, segment_collection, next_label = self.batch_generator(pbar, Train, Trimmed, Action)
             return {'X': X, 'Y': Y, 'c': c, 'h': h,
+                    'next_Y': next_label,
                     'video_name_collection': video_name_collection,
-                    'segment_collection': segment_collection,
-                    'next_Y': next_label}
+                    'segment_collection': segment_collection}
 
         pool = mp.Pool(processes=config.tasks)
-        ready_batch = pool.map(multiprocess_batch, range(0, config.tasks))
+        ready_batch = pool.map(multiprocess_batch, range(0, config.tasks*Devices))
+        ready_batch = self.add_pose(ready_batch, self.sess, augment)
+        ready_batch = self.group_batches(ready_batch, Devices, pbar)
         pbar.close()
         pool.close()
         pool.join()
-        return self.add_pose(ready_batch, self.sess, augment)
+        return ready_batch
+
+    def group_batches(self, ready_batch, Devices, pbar):
+        new_collection = []
+        for j in range(config.tasks):
+            selected_batches = ready_batch[j: j+Devices]
+            if Devices == 1:
+                X = [v['X'] for v in selected_batches]
+                X = np.expand_dims(X, axis=0)
+                Y = [v['Y'] for v in selected_batches]
+                Y = np.expand_dims(Y, axis=0)
+                c = [v['c'] for v in selected_batches]
+                c = np.expand_dims(c, axis=0)
+                h = [v['h'] for v in selected_batches]
+                h = np.expand_dims(h, axis=0)
+                next_label = [v['next_Y'] for v in selected_batches]
+                next_label = np.expand_dims(next_label, axis=0)
+            else:
+                X = [v['X'] for v in selected_batches]
+                X = np.stack(X, axis=0)
+                Y = [v['Y'] for v in selected_batches]
+                Y = np.stack(Y, axis=0)
+                c = [v['c'] for v in selected_batches]
+                c = np.stack(c, axis=0)
+                h = [v['h'] for v in selected_batches]
+                h = np.stack(h, axis=0)
+                next_label = [v['next_Y'] for v in selected_batches]
+                next_label = np.stack(next_label, axis=0)
+            video_name_collection = []
+            segment_collection = []
+            for i in range(Devices):
+                video_name_collection.append(ready_batch[j+i]['video_name_collection'])
+                segment_collection.append(ready_batch[j+i]['segment_collection'])
+            new_collection.append({'X': X, 'Y': Y, 'c': c, 'h': h,
+                    'next_Y': next_label,
+                    'video_name_collection': video_name_collection,
+                    'segment_collection': segment_collection})
+            pbar.update(1)
+            return new_collection
 
     def batch_generator(self, pbar, Train=True, Trimmed=False, Action=False):
         random.seed(time.time())

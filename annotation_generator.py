@@ -34,7 +34,7 @@ class Annotation:
             new_Dataset = {}
             for video in Dataset.keys():
                 for annotation in Dataset[video]:
-                    if annotation['label'] not in config.classes_to_use:
+                    if annotation['activity'] not in config.classes_to_use:
                         continue
                     if video not in new_Dataset:
                         new_Dataset[video]=[]
