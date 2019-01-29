@@ -101,91 +101,82 @@ def train():
         confusion_val_C3d = np.zeros((number_of_classes, number_of_classes))
         confusion_val_Next = np.zeros((number_of_classes, number_of_classes))
         step = 0
-        trimmed = True
         training = True
         with tf.name_scope('whole_saver'):
             whole_saver = tf.train.Saver()
         minimum_trimmed = config.snow_ball_per_class * number_of_classes
         pbar_whole = tqdm(total=(config.tot_steps), desc='Step')
-        while step < minimum_trimmed * 5:
+        while step < config.tot_steps:
             ready_batch = 0
-            if training:
-                if step * config.Batch_size * len(available_gpus) >= minimum_trimmed:
-                    trimmed = False
-                pbar = tqdm(total=(config.tasks * config.Batch_size * len(available_gpus) * config.frames_per_step + 2*config.tasks), leave=False, desc='Batch Generation')
+            pbar = tqdm(total=(config.tasks * config.Batch_size * len(available_gpus) * config.frames_per_step + len(available_gpus)*config.tasks - 1), leave=False, desc='Batch Generation')
+            ready_batch = IO_tool.compute_batch(pbar, Devices=len(available_gpus), Train=training)
+            for batch in ready_batch:
+                summary, t_op, y_Lstm, y_c3d, c_state, h_state, y_Next = sess.run([Train_Net.merged, Train_Net.train_op,
+                                                                           Train_Net.predictions_Lstm_list, Train_Net.predictions_c3d_list,
+                                                                           Train_Net.c_out_list, Train_Net.h_out_list,
+                                                                           Train_Net.predictions_Lstm_next_list],
+                                                                          feed_dict={Input_net.input_batch: batch['X'],
+                                                                                     Input_net.labels: batch['Y'],
+                                                                                     Input_net.c_input: batch['c'],
+                                                                                     Input_net.h_input: batch['h'],
+                                                                                     Input_net.next_labels: batch['next_Y'],
+                                                                                     Input_net.multiple_next_labels: batch['multi_next_Y']})
 
-                ready_batch = IO_tool.compute_batch(pbar, Devices=len(available_gpus), Train=training, Trimmed=trimmed, Action=config.Action)
+                for j in range(len(batch['video_name_collection'])):
+                    for y in range(c_state[0].shape[0]):
+                        IO_tool.add_hidden_state(batch['video_name_collection'][j][y],
+                                                batch['segment_collection'][j][y][1],
+                                                h_state[j][y],
+                                                c_state[j][y])
+                    confusion_train_C3d = calculate_confusion_matrix(confusion_train_C3d, batch['Y'][j], y_c3d[j], (step + 1) * config.Batch_size, 'c3d', IO_tool.dataset.id_to_label)
+                    confusion_train_Lstm = calculate_confusion_matrix(confusion_train_Lstm, batch['Y'][j], y_Lstm[j], (step + 1) * config.Batch_size, 'lstm', IO_tool.dataset.id_to_label)
+                    confusion_train_Next = calculate_confusion_matrix(confusion_train_Next, batch['Y'][j], y_Next[j], (step + 1) * config.Batch_size, 'next', IO_tool.dataset.id_to_label)
 
-                config.Action = not config.Action
+                step = step + config.Batch_size*len(available_gpus)
+                train_writer.add_summary(summary, step)
+                pbar_whole.update(config.Batch_size*len(available_gpus))
 
-                for batch in ready_batch:
-                    summary, t_op, y_Lstm, y_c3d, c_state, h_state, y_Next = sess.run([Train_Net.merged, Train_Net.train_op,
-                                                                               Train_Net.predictions_Lstm_list, Train_Net.predictions_c3d_list,
-                                                                               Train_Net.c_out_list, Train_Net.h_out_list,
-                                                                               Train_Net.predictions_Lstm_next_list],
-                                                                              feed_dict={Input_net.input_batch: batch['X'],
-                                                                                         Input_net.labels: batch['Y'],
-                                                                                         Input_net.c_input: batch['c'],
-                                                                                         Input_net.h_input: batch['h'],
-                                                                                         Input_net.next_labels: batch['next_Y']})
+                if step % 1000 == 0 or (step + 1) == config.tot_steps:
+                    validation = True
+                    if validation:
+                        val_step = step
+                        pbar_val = tqdm(total=(config.tasks * config.Batch_size * len(available_gpus) * config.frames_per_step + len(available_gpus)*config.tasks - 1), leave=False, desc='Validation Generation')
 
-                    for j in range(len(batch['video_name_collection'])):
-                        for y in range(c_state[0].shape[0]):
-                            IO_tool.add_hidden_state(batch['video_name_collection'][j][y],
-                                                    batch['segment_collection'][j][y][1],
-                                                    h_state[j][y],
-                                                    c_state[j][y])
-                        confusion_train_C3d = calculate_confusion_matrix(confusion_train_C3d, batch['Y'][j], y_c3d[j], (step + 1) * config.Batch_size, 'c3d', IO_tool.dataset.id_to_label)
-                        confusion_train_Lstm = calculate_confusion_matrix(confusion_train_Lstm, batch['Y'][j], y_Lstm[j], (step + 1) * config.Batch_size, 'lstm', IO_tool.dataset.id_to_label)
-                        confusion_train_Next = calculate_confusion_matrix(confusion_train_Next, batch['Y'][j], y_Next[j], (step + 1) * config.Batch_size, 'next', IO_tool.dataset.id_to_label)
+                        val_batch = IO_tool.compute_batch(pbar_val, Devices=len(available_gpus), Train=False, augment=False)
 
+                        for batch in val_batch:
+                            summary, y_Lstm, y_c3d, c_state, h_state, y_Next = sess.run([Train_Net.merged,
+                                                                                 Train_Net.predictions_Lstm_list, Train_Net.predictions_c3d_list,
+                                                                                 Train_Net.c_out_list, Train_Net.h_out_list,
+                                                                                 Train_Net.predictions_Lstm_next_list],
+                                                                                feed_dict={Input_net.input_batch: batch['X'],
+                                                                                           Input_net.labels: batch['Y'],
+                                                                                           Input_net.c_input: batch['c'],
+                                                                                           Input_net.h_input: batch['h'],
+                                                                                           Input_net.next_labels: batch['next_Y'],
+                                                                                           Input_net.multiple_next_labels: batch['multi_next_Y']})
+                            for j in range(len(batch['video_name_collection'])):
+                                for y in range(c_state[0].shape[0]):
+                                    IO_tool.add_hidden_state(batch['video_name_collection'][j][y],
+                                                            batch['segment_collection'][j][y][1],
+                                                            h_state[j][y],
+                                                            c_state[j][y])
 
+                                confusion_val_C3d = calculate_confusion_matrix(confusion_val_C3d, batch['Y'][j], y_c3d[j], (step + 1) * config.Batch_size, 'c3d_val', IO_tool.dataset.id_to_label)
+                                confusion_val_Lstm = calculate_confusion_matrix(confusion_val_Lstm, batch['Y'][j], y_Lstm[j], (step + 1) * config.Batch_size, 'lstm_val', IO_tool.dataset.id_to_label)
+                                confusion_val_Next = calculate_confusion_matrix(confusion_val_Next, batch['Y'][j], y_Next[j], (step + 1) * config.Batch_size, 'next_val', IO_tool.dataset.id_to_label)
+                            val_writer.add_summary(summary, val_step + config.Batch_size*len(available_gpus))
+                            val_step += 1
 
-                    step = step + 1
-                    train_writer.add_summary(summary, (step) * config.Batch_size*len(available_gpus))
-                    pbar_whole.update(config.Batch_size*len(available_gpus))
-
-                    real_step = step*config.Batch_size*len(available_gpus)
-                    if real_step % 1000 == 0 or (real_step + 1) == config.tot_steps:
-                        validation = True
-                        if validation:
-                            val_step = step
-                            pbar_val = tqdm(total=(config.tasks * config.Batch_size * config.frames_per_step + 2*config.tasks), leave=False, desc='Validation Generation')
-
-                            val_batch = IO_tool.compute_batch(pbar_val, Devices=len(available_gpus), Train=False, Trimmed=trimmed, Action=config.Action, augment=False)
-
-                            for batch in val_batch:
-                                summary, y_Lstm, y_c3d, c_state, h_state, y_Next = sess.run([Train_Net.merged,
-                                                                                     Train_Net.predictions_Lstm, Train_Net.predictions_c3d,
-                                                                                     Train_Net.c_out, Train_Net.h_out,
-                                                                                     Train_Net.predictions_Lstm_next],
-                                                                                    feed_dict={Input_net.input_batch: batch['X'],
-                                                                                               Input_net.labels: batch['Y'],
-                                                                                               Input_net.c_input: batch['c'],
-                                                                                               Input_net.h_input: batch['h'],
-                                                                                               Input_net.next_labels: batch['next_Y']})
-                                for j in range(len(batch['video_name_collection'])):
-                                    for y in range(c_state.shape[0]):
-                                        IO_tool.add_hidden_state(batch['video_name_collection'][j][y],
-                                                                batch['segment_collection'][j][y][1],
-                                                                h_state[j][y],
-                                                                c_state[j][y])
-
-                                    confusion_val_C3d = calculate_confusion_matrix(confusion_val_C3d, batch['Y'][j], y_c3d[j], (step + 1) * config.Batch_size, 'c3d_val', IO_tool.dataset.id_to_label)
-                                    confusion_val_Lstm = calculate_confusion_matrix(confusion_val_Lstm, batch['Y'][j], y_Lstm[j], (step + 1) * config.Batch_size, 'lstm_val', IO_tool.dataset.id_to_label)
-                                    confusion_val_Next = calculate_confusion_matrix(confusion_val_Next, batch['Y'][j], y_Next[j], (step + 1) * config.Batch_size, 'next_val', IO_tool.dataset.id_to_label)
-                                val_writer.add_summary(summary, (val_step + 1) * config.Batch_size)
-                                val_step += 1
-
-                        IO_tool.save_hidden_state_collection()
-                        IO_tool.hidden_states_statistics()
-                        confusion_train_Lstm = np.zeros((number_of_classes, number_of_classes))
-                        confusion_train_C3d = np.zeros((number_of_classes, number_of_classes))
-                        confusion_train_Next = np.zeros((number_of_classes, number_of_classes))
-                        confusion_val_Lstm = np.zeros((number_of_classes, number_of_classes))
-                        confusion_val_C3d = np.zeros((number_of_classes, number_of_classes))
-                        confusion_val_Next = np.zeros((number_of_classes, number_of_classes))
-                        whole_saver.save(sess, config.model_filename, global_step=Network.global_step)
+                    IO_tool.save_hidden_state_collection()
+                    # IO_tool.hidden_states_statistics()
+                    confusion_train_Lstm = np.zeros((number_of_classes, number_of_classes))
+                    confusion_train_C3d = np.zeros((number_of_classes, number_of_classes))
+                    confusion_train_Next = np.zeros((number_of_classes, number_of_classes))
+                    confusion_val_Lstm = np.zeros((number_of_classes, number_of_classes))
+                    confusion_val_C3d = np.zeros((number_of_classes, number_of_classes))
+                    confusion_val_Next = np.zeros((number_of_classes, number_of_classes))
+                    whole_saver.save(sess, config.model_filename, global_step=step)
 
 
 train()

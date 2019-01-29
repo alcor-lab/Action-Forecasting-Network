@@ -28,15 +28,16 @@ class IO_manager:
             self.hidden_states_collection = {}
         self.hidden_states_statistics()
 
-    def compute_batch(self, pbar, Devices, Train, Trimmed, Action, augment=True):
+    def compute_batch(self, pbar, Devices, Train, augment=True):
         def multiprocess_batch(x):
-            X, Y, c, h, video_name_collection, segment_collection, next_label = self.batch_generator(pbar, Train, Trimmed, Action)
+            X, Y, c, h, video_name_collection, segment_collection, next_label, multiple_next_label = self.batch_generator(pbar, Train)
             return {'X': X, 'Y': Y, 'c': c, 'h': h,
                     'next_Y': next_label,
+                    'multi_next_Y': multiple_next_label,
                     'video_name_collection': video_name_collection,
                     'segment_collection': segment_collection}
 
-        pool = mp.Pool(processes=config.tasks)
+        pool = mp.Pool(processes=config.processes)
         ready_batch = pool.map(multiprocess_batch, range(0, config.tasks*Devices))
         ready_batch = self.add_pose(ready_batch, self.sess, augment)
         ready_batch = self.group_batches(ready_batch, Devices, pbar)
@@ -49,7 +50,7 @@ class IO_manager:
         new_collection = []
         for j in range(config.tasks):
             selected_batches = ready_batch[j: j+Devices]
-            if Devices == 1:
+            if Devices == 'g':
                 X = [v['X'] for v in selected_batches]
                 X = np.expand_dims(X, axis=0)
                 Y = [v['Y'] for v in selected_batches]
@@ -60,6 +61,8 @@ class IO_manager:
                 h = np.expand_dims(h, axis=0)
                 next_label = [v['next_Y'] for v in selected_batches]
                 next_label = np.expand_dims(next_label, axis=0)
+                multi_next_label = [v['multi_next_Y'] for v in selected_batches]
+                multi_next_label = np.expand_dims(next_label, axis=0)
             else:
                 X = [v['X'] for v in selected_batches]
                 X = np.stack(X, axis=0)
@@ -71,6 +74,8 @@ class IO_manager:
                 h = np.stack(h, axis=0)
                 next_label = [v['next_Y'] for v in selected_batches]
                 next_label = np.stack(next_label, axis=0)
+                multi_next_label = [v['multi_next_Y'] for v in selected_batches]
+                multi_next_label = np.stack(next_label, axis=0)
             video_name_collection = []
             segment_collection = []
             for i in range(Devices):
@@ -78,54 +83,48 @@ class IO_manager:
                 segment_collection.append(ready_batch[j+i]['segment_collection'])
             new_collection.append({'X': X, 'Y': Y, 'c': c, 'h': h,
                     'next_Y': next_label,
+                    'multi_next_Y': multi_next_label,
                     'video_name_collection': video_name_collection,
                     'segment_collection': segment_collection})
             pbar.update(1)
-            return new_collection
+        return new_collection
 
-    def batch_generator(self, pbar, Train=True, Trimmed=False, Action=False):
+    def batch_generator(self, pbar, Train=True):
         random.seed(time.time())
         segment_collection = []
         video_name_collection = []
         batch = np.zeros(shape=(config.Batch_size, config.frames_per_step, config.op_input_height, config.op_input_width, 7), dtype=float)
         labels = np.zeros(shape=(config.Batch_size, self.num_classes), dtype=int)
         next_labels = np.zeros(shape=(config.Batch_size, self.num_classes), dtype=int)
+        multiple_next_labels = np.zeros(shape=(config.Batch_size, self.num_classes), dtype=int)
         c = np.zeros(shape=(config.Batch_size, config.hidden_states_dim), dtype=float)
         h = np.zeros(shape=(config.Batch_size, config.hidden_states_dim), dtype=float)
 
         # Selecting correct dataset
         if Train:
-            if Action:
-                trimmed_dataset = self.dataset.trimmed_train_dataset
-            else:
-                trimmed_dataset = self.dataset.trimmed_train_next
-            untrimmed_dataset = self.dataset.untrimmed_train_dataset
-            untrimmed_next = self.dataset.untrimmed_train_next
+            dataset = self.dataset.train_collection
         else:
-            if Action:
-                trimmed_dataset = self.dataset.trimmed_val_dataset
-            else:
-                trimmed_dataset = self.dataset.trimmed_val_next
-            untrimmed_dataset = self.dataset.untrimmed_val_dataset
-            untrimmed_next = self.dataset.untrimmed_val_next
+            dataset = self.dataset.test_collection
 
         j = 0
         while j < config.Batch_size:
-            if Trimmed:
-                segment, path = self.trimmed_segment_extractor(trimmed_dataset, untrimmed_dataset)
-            else:
-                segment, path = self.untrimmed_segment_extractor(untrimmed_dataset)
-
+            random_entry = self.entry_selector(dataset)
+            current_label = random_entry['now_label']
+            next_label = random_entry['next_label']
+            multiple_next = random_entry['all_next_label']
+            path = random_entry['path']
+            segment = random_entry['segment']
+            label_history = random_entry['history']
             one_input, frame_list = self.extract_one_input(path, segment, pbar)
-            final_label = self.label_calculator(frame_list, path, untrimmed_dataset)
-            next_final_label = self.label_calculator(frame_list, path, untrimmed_next)
             config.snow_ball_step_count += 1
 
             segment_collection.append(segment)
             video_name_collection.append(path)
             batch[j, :, :, :, :] = one_input
-            labels[j, final_label] = 1
-            next_labels[j, next_final_label] = 1
+            labels[j, current_label] = 1
+            next_labels[j, next_label] = 1
+            for element in multiple_next:
+                multiple_next_labels[j, element] = 1
             if path in self.hidden_states_collection:
                 start_frame = segment_collection[j][0] - 1
                 if start_frame in self.hidden_states_collection[path].keys():
@@ -136,84 +135,13 @@ class IO_manager:
 
         pbar.update(1)
         pbar.refresh()
-        return batch, labels, c, h, video_name_collection, segment_collection, next_labels
+        return batch, labels, c, h, video_name_collection, segment_collection, next_labels, multiple_next_labels
 
-    def trimmed_segment_extractor(self, trimmed, untrimmed):
-        Bool = True
-        while Bool:
-            try:
-                random.seed(time.time())
-                if config.snow_ball:
-                    possible_label = self.snow_ball_labels_calculator()
-                    entry_label = random.choice(possible_label)
-                else:
-                    entry_label = random.choice(list(trimmed))
-                entry_name = random.choice(trimmed[entry_label])
-                path = entry_name['path']
-                if path not in untrimmed.keys():
-                    continue
-                video = cv2.VideoCapture(path)
-                fps = video.get(cv2.CAP_PROP_FPS)
-                segment = entry_name['segment']
-                if segment[1] == segment[0]:
-                    continue
-                min_end = (segment[0] + config.window_size)
-                random_end = min_end + random.random() * (segment[1] - min_end)
-                int_part = int(random_end / 1)
-                decimal_part = round(float(segment[1] % 1 / config.window_size)) * config.window_size
-                end_second = int_part + decimal_part
-                end_frame = int(round(end_second * fps))
-                start_frame = int(end_frame - config.window_size * fps + 1)
-                if start_frame <= 1:
-                    start_frame = 2
-                label_count = 0
-                tot_frames = end_frame - start_frame
-                minimum_label = tot_frames * 0.5
-                segment = [start_frame, end_frame]
-                label_clip = {}
-                count = 0
-                for frame in range(start_frame, end_frame):
-                    if frame not in untrimmed[path]:
-                        print(frame_list)
-                    label = untrimmed[path][frame]
-                    if label not in label_clip:
-                        label_clip[label] = 0
-                    label_clip[label] += 1
-                    count += 1
-                    final_label = max(label_clip, key=label_clip.get)
-                    if label_clip[final_label] > 0.5*count:
-                        Bool = False
-                        break
-            except Exception as e:
-                pass
-        segment = [start_frame, end_frame]
-        return segment, path
-
-    def untrimmed_segment_extractor(self, untrimmed):
-        path = random.choice(list(untrimmed.keys()))
-        video = cv2.VideoCapture(path)
-        fps = video.get(cv2.CAP_PROP_FPS)
-        max_frame = max(list(untrimmed[path].keys()))
-        Bool = True
-        while Bool:
-            random_end = (config.window_size + random.random() * (float(max_frame / fps) - config.window_size))
-            int_part = int(random_end / 1)
-            decimal_part = round(float(random_end % 1 / config.window_size)) * config.window_size
-            random_end = int_part + decimal_part
-            end_frame = int(random_end * fps)
-            if end_frame > max_frame:
-                continue
-            start_frame = int(end_frame - config.window_size * fps + 1)
-            not_zero_count = 0
-            for frame in range(start_frame, end_frame):
-                label = untrimmed[path][frame]
-                if label is not 0:
-                    not_zero_count += 1
-                    if not_zero_count >= config.window_size * fps * 0:
-                        Bool = False
-                        break
-        segment = [start_frame, end_frame]
-        return segment, path
+    def entry_selector(self, dataset):
+        random.seed(time.time())
+        random_couple = random.choice(list(dataset))
+        entry = random.choice(dataset[random_couple])
+        return entry
 
     def label_calculator(self, frame_list, path, untrimmed):
         label_clip = {}
@@ -242,6 +170,11 @@ class IO_manager:
             video.set(cv2.CAP_PROP_POS_AVI_RATIO, 1)
             length = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
             linspace_frame = np.linspace(segment[0], segment[1], num=config.frames_per_step)
+            tot_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+            if (linspace_frame[-1] == (tot_frames-1)):
+                linspace_frame[-1] -= 1
+            if (linspace_frame[-1] == (tot_frames-2)):
+                linspace_frame[-1] -= 2
             z = 0
             for frame in linspace_frame:
                 try:
@@ -257,6 +190,13 @@ class IO_manager:
                     else:
                         video.set(1, frame)
                         ret, im = video.read()
+                        if not ret:
+                            tot_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+                            print('\n', ret)
+                            print('\nframe', frame)
+                            print('\ntotframe', tot_frames)
+                            print('\nvideo_path', video_path)
+                            print('\nsegment', segment)
                         im = cv2.resize(im, dsize=(config.op_input_height, config.op_input_width), interpolation=cv2.INTER_CUBIC)
                         extracted_frames[frame] = {}
                         extracted_frames[frame]['im'] = im
@@ -269,6 +209,13 @@ class IO_manager:
                     else:
                         video.set(1, frame_prev)
                         ret, im_prev = video.read()
+                        if not ret:
+                            tot_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+                            print('\n', ret)
+                            print('\nprevframe', frame)
+                            print('\ntotframe', tot_frames)
+                            print('\nvideo_path', video_path)
+                            print('\nsegment', segment)
                         im_prev = cv2.resize(im_prev, dsize=(config.op_input_height, config.op_input_width), interpolation=cv2.INTER_CUBIC)
                         extracted_frames[frame_prev] = {}
                         extracted_frames[frame_prev]['im'] = im_prev
@@ -283,40 +230,16 @@ class IO_manager:
                     norm_flow = cv2.normalize(flow, norm_flow, 0, 255, cv2.NORM_MINMAX)
                     one_input[z, :, :, :3] = im
                     one_input[z, :, :, 5:7] = flow
-                    pbar.update(1)
                     z += 1
                 except Exception as e:
                     pass
+                pbar.update(1)
         except Exception as e:
             pass
 
         frame_list = extracted_frames.keys()
         extracted_frames = None
         return one_input, frame_list
-
-    def test_generator(self, pbar, path, segment):
-        random.seed(time.time())
-        video_name_collection = []
-        batch = np.zeros(shape=(1, config.frames_per_step, config.op_input_height, config.op_input_width, 7), dtype=float)
-        labels = np.zeros(shape=(1, self.num_classes), dtype=int)
-        c = np.zeros(shape=(1, config.hidden_states_dim), dtype=float)
-        h = np.zeros(shape=(1, config.hidden_states_dim), dtype=float)
-
-        one_input, frame_list = self.extract_one_input(path, segment, pbar)
-        final_label = self.label_calculator(frame_list, path, self.dataset.untrimmed_train_dataset)
-
-        batch[0, :, :, :, :] = one_input
-        label = self.dataset.id_to_label[final_label]
-
-        if path in self.hidden_states_collection:
-            start_frame = segment[0] - 1
-            if start_frame in self.hidden_states_collection[path].keys():
-                c[1, :] = self.hidden_states_collection[path][start_frame]['c']
-                h[1, :] = self.hidden_states_collection[path][start_frame]['h']
-
-        pbar.update(1)
-        pbar.refresh()
-        return batch, c, h, label
 
     def add_pose(self, X, sess, augment=True):
         shape = (X[0])['X'].shape
@@ -331,14 +254,17 @@ class IO_manager:
             shrinked_X = np.zeros(shape=(shape[0], shape[1], config.out_H, config.out_W, shape[4]), dtype=float)
             for i in range(shape[0]):
                 for j in range(shape[1]):
-                    pafMat, heatMat = self.openpose.compute_pose_frame(X_data[i, j, :, :, :3])
-                    X_data[i, j, :, :, 3] = heatMat
-                    X_data[i, j, :, :, 4] = pafMat
-                    final_frame = X_data[i, j, :, :, :]
-                    shrinked_frame = cv2.resize(final_frame, dsize=(config.out_H, config.out_W), interpolation=cv2.INTER_CUBIC)
-                    shrinked_frame = self.augment_data(shrinked_frame, augment)
-                    shrinked_X[i, j, :, :, :] = shrinked_frame
-                    pbar.update(1)
+                    try:
+                        pafMat, heatMat = self.openpose.compute_pose_frame(X_data[i, j, :, :, :3])
+                        X_data[i, j, :, :, 3] = heatMat
+                        X_data[i, j, :, :, 4] = pafMat
+                        final_frame = X_data[i, j, :, :, :]
+                        shrinked_frame = cv2.resize(final_frame, dsize=(config.out_H, config.out_W), interpolation=cv2.INTER_CUBIC)
+                        shrinked_frame = self.augment_data(shrinked_frame, augment)
+                        shrinked_X[i, j, :, :, :] = shrinked_frame
+                        pbar.update(1)
+                    except Exception as e:
+                        pass
             if config.show_pic:
                 self.show_input_pic(X_data)
             X[k]['X'] = shrinked_X

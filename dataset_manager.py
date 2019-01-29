@@ -15,58 +15,55 @@ pp = pprint.PrettyPrinter(indent=4)
 
 class Dataset:
     def __init__(self):
-
-        self.whole_dataset = Annotation().Dataset
-
-        if os.path.isfile('dataset/label_to_id.pkl') and os.path.isfile('dataset/id_to_label.pkl') and not config.rebuild:
-            self.label_to_id = self.load_dataset_obj('label_to_id')
-            self.id_to_label = self.load_dataset_obj('id_to_label')
-        else:
-            self.label_to_id, self.id_to_label = self.create_labels_mappings()
-            self.save_dataset_obj(self.label_to_id, 'label_to_id')
-            self.save_dataset_obj(self.id_to_label, 'id_to_label')
-        self.number_of_classes = len(self.id_to_label)
-        pp.pprint(self.id_to_label)
-
-        if (os.path.isfile('dataset/trimmed_train_dataset.pkl') and
-                os.path.isfile('dataset/trimmed_val_dataset.pkl') and
-                os.path.isfile('dataset/untrimmed_train_dataset.pkl') and
-                os.path.isfile('dataset/untrimmed_val_dataset.pkl') and
-                os.path.isfile('dataset/untrimmed_train_next.pkl') and
-                os.path.isfile('dataset/untrimmed_val_next.pkl') and
+        if (os.path.isfile('dataset/frame_now.pkl') and
+                os.path.isfile('dataset/frame_next.pkl') and
+                os.path.isfile('dataset/train_collection.pkl') and
+                os.path.isfile('dataset/train_tree_list.pkl') and
+                os.path.isfile('dataset/train_couple_count.pkl') and
+                os.path.isfile('dataset/test_collection.pkl') and
+                os.path.isfile('dataset/test_tree_list.pkl') and
+                os.path.isfile('dataset/test_couple_count.pkl') and
+                os.path.isfile('dataset/label_to_id.pkl') and
+                os.path.isfile('dataset/id_to_label.pkl') and
                 not config.rebuild):
 
-            print(not config.rebuild)
-            self.trimmed_train_dataset = self.load_dataset_obj('trimmed_train_dataset')
-            self.trimmed_val_dataset = self.load_dataset_obj('trimmed_val_dataset')
-            self.trimmed_train_next = self.load_dataset_obj('trimmed_train_next')
-            self.trimmed_val_next = self.load_dataset_obj('trimmed_val_next')
-            self.untrimmed_train_dataset = self.load_dataset_obj('untrimmed_train_dataset')
-            self.untrimmed_val_dataset = self.load_dataset_obj('untrimmed_val_dataset')
-            self.untrimmed_train_next = self.load_dataset_obj('untrimmed_train_next')
-            self.untrimmed_val_next = self.load_dataset_obj('untrimmed_val_next')
+            self.label_to_id = self.load('label_to_id')
+            self.id_to_label = self.load('id_to_label')
+            self.number_of_classes = len(self.id_to_label)
+            self.frame_now = self.load('frame_now')
+            self.frame_next = self.load('frame_next')
+            self.train_collection = self.load('train_collection')
+            self.train_tree_list = self.load('train_tree_list')
+            self.train_couple_count = self.load('train_couple_count')
+            self.test_collection = self.load('test_collection')
+            self.test_tree_list = self.load('test_tree_list')
+            self.test_couple_count = self.load('test_couple_count')
         else:
             self.generate_dataset()
 
+        pp.pprint(self.id_to_label)
+
+
     def generate_dataset(self):
+        self.whole_dataset = Annotation().Dataset
+        self.label_to_id, self.id_to_label = self.create_labels_mappings()
+        self.save(self.label_to_id, 'label_to_id')
+        self.save(self.id_to_label, 'id_to_label')
+        self.number_of_classes = len(self.id_to_label)
         self.validation_fraction = config.validation_fraction
         self.Train_dataset, self.Val_dataset = self.split_dataset()
-        self.untrimmed_train_dataset = self.create_untrimmed_collection(self.Train_dataset, next=False)
-        self.untrimmed_val_dataset = self.create_untrimmed_collection(self.Val_dataset, next=False)
-        self.untrimmed_train_next = self.create_untrimmed_collection(self.Train_dataset, next=True)
-        self.untrimmed_val_next = self.create_untrimmed_collection(self.Val_dataset, next=True)
-        self.trimmed_train_dataset = self.create_trimmed_collection(self.Train_dataset, next=False)
-        self.trimmed_val_dataset = self.create_trimmed_collection(self.Val_dataset, next=False)
-        self.trimmed_train_next = self.create_trimmed_collection(self.Train_dataset, next=True)
-        self.trimmed_val_next = self.create_trimmed_collection(self.Val_dataset, next=True)
-        self.save_dataset_obj(self.trimmed_train_dataset, 'trimmed_train_dataset')
-        self.save_dataset_obj(self.trimmed_val_dataset, 'trimmed_val_dataset')
-        self.save_dataset_obj(self.trimmed_train_next, 'trimmed_train_next')
-        self.save_dataset_obj(self.trimmed_val_next, 'trimmed_val_next')
-        self.save_dataset_obj(self.untrimmed_train_dataset, 'untrimmed_train_dataset')
-        self.save_dataset_obj(self.untrimmed_val_dataset, 'untrimmed_val_dataset')
-        self.save_dataset_obj(self.untrimmed_train_next, 'untrimmed_train_next')
-        self.save_dataset_obj(self.untrimmed_val_next, 'untrimmed_val_next')
+        self.frame_now = self.compute_frame_label(self.whole_dataset, next=False)
+        self.frame_next = self.compute_frame_label(self.whole_dataset, next=True)
+        self.train_collection, self.train_tree_list, self.train_couple_count = self.new_collection(self.whole_dataset)
+        self.test_collection, self.test_tree_list, self.test_couple_count = self.new_collection(self.whole_dataset)
+        self.save(self.frame_now, 'frame_now')
+        self.save(self.frame_next, 'frame_next')
+        self.save(self.train_collection, 'train_collection')
+        self.save(self.train_tree_list, 'train_tree_list')
+        self.save(self.train_couple_count, 'train_couple_count')
+        self.save(self.test_collection, 'test_collection')
+        self.save(self.test_tree_list, 'test_tree_list')
+        self.save(self.test_couple_count, 'test_couple_count')
 
     def split_dataset(self):
         dataset_train = self.whole_dataset
@@ -98,36 +95,7 @@ class Dataset:
                     i += 1
         return label_to_id, id_to_label
 
-    def create_trimmed_collection(self, dataset, next):
-        collection = {}
-        whatLabel = 'label'
-        if next:
-            whatLabel = 'next_label'
-        for root, dirs, files in os.walk('dataset'):
-            for fl in files:
-                path = root + '/' + fl
-                is_dataset = False
-                if path in dataset.keys():
-                    key = path
-                    is_dataset = True
-                elif fl in dataset.keys():
-                    key = fl
-                    is_dataset = True
-                if is_dataset:
-                    for annotation in dataset[key]:
-                        if annotation[whatLabel] in self.label_to_id.keys():
-                            label = annotation[whatLabel]
-                            segment = annotation['milliseconds']
-                            new_segment = [segment[0] / 1000, segment[1] / 1000]
-                            if self.label_to_id[label] not in collection.keys():
-                                collection[self.label_to_id[label]] = []
-                            new_entry = {}
-                            new_entry['path'] = path
-                            new_entry['segment'] = new_segment
-                            collection[self.label_to_id[label]].append(new_entry)
-        return collection
-
-    def create_untrimmed_collection(self, dataset, next):
+    def compute_frame_label(self, dataset, next):
         collection = {}
         iter_count = 0
         for root, dirs, files in os.walk('dataset'):
@@ -187,10 +155,114 @@ class Dataset:
         pbar.close()
         return collection
 
-    def save_dataset_obj(self, obj, name):
+    def new_collection(self, dataset):
+        iter_count = 0
+        for root, dirs, files in os.walk('dataset'):
+            for fl in files:
+                path = root + '/' + fl
+                is_dataset = False
+                if path in dataset.keys():
+                    key = path
+                    is_dataset = True
+                elif fl in dataset.keys():
+                    key = fl
+                    is_dataset = True
+                if is_dataset:
+                    iter_count += 1
+
+        pbar = tqdm(total=(iter_count), leave=False, desc='Generating untrimmed dataset')
+
+        collection = {}
+        couple_count =  {}
+        tree_list = {}
+
+        for root, dirs, files in os.walk('dataset'):
+            for fl in files:
+                path = root + '/' + fl
+                is_dataset = False
+                if path in dataset.keys():
+                    key = path
+                    is_dataset = True
+                elif fl in dataset.keys():
+                    key = fl
+                    is_dataset = TrueFalse
+
+                if is_dataset:
+                    path = root + '/' + fl
+                    video = cv2.VideoCapture(path)
+                    video.set(cv2.CAP_PROP_POS_AVI_RATIO, 1)
+                    fps = video.get(cv2.CAP_PROP_FPS)
+                    tot_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+                    tot_steps = int(tot_frames/(config.window_size*fps))
+                    label_history = ''
+                    if tot_steps is 0:
+                        break
+                    step_label = {}
+                    not_zero = False
+                    for step in range(tot_steps):
+                        max_frame = int((step+1)*config.window_size*fps)+1
+                        if max_frame > tot_frames:
+                            continue
+                        frame_list = [frame for frame in range(int(step*config.window_size*fps + 1),int((step+1)*config.window_size*fps)+1)]
+                        segment = [frame_list[0], frame_list[-1]]
+                        current_label = self.label_calculator(frame_list, path, self.frame_now)
+                        next_label = self.label_calculator(frame_list, path, self.frame_next)
+                        if len(label_history) is 0:
+                            label_history += str(current_label)
+                        elif str(current_label) not in label_history.split('-')[-1]:
+                            label_history += '-' + str(current_label)
+
+                        if label_history not in tree_list:
+                            tree_list[label_history] = [next_label]
+                        else:
+                            if next_label not in tree_list[label_history]:
+                                tree_list[label_history].append(next_label)
+
+                        couple = str(current_label) + '-' + str(next_label)
+                        if couple not in couple_count:
+                            couple_count[couple] = 1
+                        else:
+                            couple_count[couple] += 1
+
+                        entry = {'now_label' : current_label, 'next_label' : next_label, 'all_next_label' : couple,
+                                 'path': path, 'segment':segment, 'history':label_history}
+                        if couple not in couple_count:
+                            collection[couple] = [entry]
+                        else:
+                            if couple not in collection:
+                                collection[couple] = []
+                            collection[couple].append(entry)
+
+                    pbar.update(1)
+        for x in collection:
+            for entry in collection[x]:
+                all_next_label = tree_list[entry['history']]
+                entry['all_next_label'] = all_next_label
+        pbar.close()
+        return collection, tree_list, couple_count
+
+    def label_calculator(self, frame_list, path, untrimmed):
+        label_clip = {}
+        for frame in frame_list:
+            if frame not in untrimmed[path]:
+                print(frame_list)
+                print(frame_list)
+            label = untrimmed[path][frame]
+            if label not in label_clip:
+                label_clip[label] = 0
+            label_clip[label] += 1
+        try:
+            final_label = max(label_clip, key=label_clip.get)
+        except Exception as e:
+            print(label_clip, frame_list)
+            final_label = 0
+            pass
+        return final_label
+
+    def save(self, obj, name):
         with open('dataset/' + name + '.pkl', 'wb') as f:
             pickle.dump(obj, f, pickle.HIGHEST_PROTOCOL)
 
-    def load_dataset_obj(self, name):
+    def load(self, name):
         with open('dataset/' + name + '.pkl', 'rb') as f:
             return pickle.load(f)

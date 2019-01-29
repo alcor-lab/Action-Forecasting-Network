@@ -15,12 +15,14 @@ class Input_manager:
             with tf.name_scope("Target"):
                 self.labels = tf.placeholder(tf.float32, shape=(None, None, None), name="Target")
                 self.next_labels = tf.placeholder(tf.float32, shape=(None, None, None), name="next_labels")
+                self.multiple_next_labels = tf.placeholder(tf.float32, shape=(None, None, None), name="next_labels")
 
             self.input_batch_list = []
             self.h_input_list = []
             self.c_input_list = []
             self.labels_list = []
             self.next_labels_list = []
+            self.multiple_next_labels_list = []
             for j in range(devices):
                 with tf.name_scope("Input_Net"):
                     with tf.name_scope("Input"):
@@ -32,6 +34,7 @@ class Input_manager:
                     with tf.name_scope("Target"):
                         self.labels_list.append(tf.squeeze(self.labels[j, :, :]))
                         self.next_labels_list.append(tf.squeeze(self.next_labels[j, :, :]))
+                        self.multiple_next_labels_list.append(tf.squeeze(self.multiple_next_labels[j, :, :]))
 
 class activity_network:
     def __init__(self, number_of_classes, Input_manager, device_j):
@@ -78,13 +81,16 @@ class activity_network:
                 wd_L = {
                     'wd_pLout_multiply': self._variable_with_weight_decay('wd_pLout_multiply', [3*config.lstm_units, config.lstm_units * config.lstm_units], 0.04, 0.005),
                     'wd_Lout': self._variable_with_weight_decay('wd_Lout', [config.lstm_units, self.number_of_classes], 0.04, 0.005),
-                    'wd_Lout_next': self._variable_with_weight_decay('wd_Lout_next', [self.next_fc, self.number_of_classes], 0.04, 0.005)}
+                    'wd_Lout_next': self._variable_with_weight_decay('wd_Lout_next', [self.next_fc, self.number_of_classes], 0.04, 0.005),
+                    'wd_Lout_multiple_next': self._variable_with_weight_decay('wd_Lout_multiple_next', [self.next_fc, self.number_of_classes], 0.04, 0.005)}
                 bd_L = {
                     'bd_pLout_multiply': self._variable_with_weight_decay('bd_pLout_multiply', [config.lstm_units * config.lstm_units], 0.04, 0.0),
                     'bd_Lout': self._variable_with_weight_decay('bd_Lout', [self.number_of_classes], 0.04, 0.0),
                     'bd_Lout_next': self._variable_with_weight_decay('bd_Lout_next', [self.number_of_classes], 0.04, 0.0),
+                    'bd_Lout_multiple_next': self._variable_with_weight_decay('bd_Lout_multiple_next', [self.number_of_classes], 0.04, 0.0),
                     'bd_Lout_2': self._variable_with_weight_decay('bd_Lout_2', [config.lstm_units], 0.04, 0.0),
-                    'bd_Lout_2_next': self._variable_with_weight_decay('bd_Lout_2_next', [config.lstm_units], 0.04, 0.0)}
+                    'bd_Lout_2_next': self._variable_with_weight_decay('bd_Lout_2_next', [config.lstm_units], 0.04, 0.0),
+                    'bd_Lout_2_multiple_next': self._variable_with_weight_decay('bd_Lout__multiple2_next', [config.lstm_units], 0.04, 0.0)}
 
             with tf.name_scope("Input"):
                 self.input_batch = Input_manager.input_batch_list[device_j]
@@ -96,6 +102,7 @@ class activity_network:
             with tf.name_scope("Target"):
                 self.labels = Input_manager.labels_list[device_j]
                 self.next_labels = Input_manager.next_labels_list[device_j]
+                self.multiple_next_labels = Input_manager.multiple_next_labels_list[device_j]
 
             with tf.name_scope('C3d'):
 
@@ -196,6 +203,14 @@ class activity_network:
                 self.softmax_Lstm_next = tf.nn.softmax(self.out_L_next)
                 self.predictions_Lstm_next = tf.argmax(input=self.softmax_Lstm_next, axis=1, name="classes")
 
+            with tf.name_scope("Multiple_Next_classifier"):
+                out_L_multiple_next = tf.map_fn(lambda x: tf.squeeze(tf.matmul(tf.expand_dims(x[0], 0), x[1]) + bd_L['bd_Lout_2_multiple_next']), [decoder_output, matrix_multiply], dtype=tf.float32, parallel_iterations=config.Batch_size)
+                out_L_multiple_next = composedVec = tf.concat([out_L_multiple_next, self.softmax_Lstm], axis=1)
+                self.out_L_multiple_next = tf.matmul(out_L_multiple_next, wd_L['wd_Lout_multiple_next']) + bd_L['bd_Lout_multiple_next']
+                self.sigmoid_multiple_next = tf.sigmoid(self.out_L_multiple_next)
+                self.predictions_Lstm_multiple_next = tf.to_int32(self.sigmoid_multiple_next > 0.5)
+                self.output_multiple_next_label = tf.where(tf.greater(self.predictions_Lstm_multiple_next, 0))[:,1]
+
         with tf.name_scope('Loaders_and_Savers'):
             self.global_step = tf.Variable(0, name='global_step', trainable=False)
             self.variables = tf.contrib.slim.get_variables_to_restore()
@@ -230,8 +245,10 @@ class Training:
         self.accuracy_c3d_list = []
         self.accuracy_Lstm_list = []
         self.accuracy_Lstm_next_list = []
+        self.accuracy_Lstm_multiple_next_list = []
         self.cross_entropy_Lstm_list = []
         self.cross_entropy_Next_list = []
+        self.cross_entropy_multiple_Next_list = []
         self.cross_entropy_c3d_list = []
         with tf.name_scope('Losses_and_Metrics'):
             for Net in Networks:
@@ -241,8 +258,13 @@ class Training:
                         argmax_labels = tf.argmax(casted_labels, axis=1)
                         casted_labels_next = tf.cast(Networks[Net].next_labels, tf.int64)
                         argmax_labels_next = tf.argmax(casted_labels_next, axis=1)
+                        casted_labels_multiple_next = tf.cast(Networks[Net].multiple_next_labels, tf.int32)
                         accuracy_Lstm = tf.contrib.metrics.accuracy(Networks[Net].predictions_Lstm, argmax_labels)
                         accuracy_Lstm_next = tf.contrib.metrics.accuracy(Networks[Net].predictions_Lstm_next, argmax_labels_next)
+                        correct_prediction = tf.equal(Networks[Net].predictions_Lstm_multiple_next, casted_labels_multiple_next)
+                        all_labels_true = tf.reduce_min(tf.cast(correct_prediction, tf.float32), 1)
+                        accuracy_Lstm_multiple_next = tf.reduce_mean(all_labels_true)
+                        # accuracy_Lstm_multiple_next = tf.contrib.metrics.accuracy(Networks[Net].predictions_Lstm_multiple_next, casted_labels_multiple_next)
                         accuracy_c3d = tf.contrib.metrics.accuracy(Networks[Net].predictions_c3d, argmax_labels)
                         comparison = tf.contrib.metrics.accuracy(argmax_labels_next, argmax_labels)
 
@@ -261,15 +283,23 @@ class Training:
                         cross_entropy_Next = tf.reduce_sum(cross_entropy_Next_vec)
                         cross_entropy_Next = cross_entropy_Next
 
+                    with tf.name_scope("Multiple_Next_Loss"):
+                        cross_entropy_multiple_Next_vec = tf.nn.sigmoid_cross_entropy_with_logits(labels=Networks[Net].multiple_next_labels, logits=Networks[Net].out_L_multiple_next)
+                        cross_entropy_multiple_Next = tf.reduce_sum(cross_entropy_multiple_Next_vec)
+                        cross_entropy_multiple_Next = cross_entropy_multiple_Next
+
                     with tf.name_scope("Global_Loss"):
-                        cross_entropy = (accuracy_c3d)*((accuracy_Lstm)*cross_entropy_Next + (1 - accuracy_Lstm)*cross_entropy_Lstm) + (1 - accuracy_c3d) * cross_entropy_c3d
+                        # cross_entropy = (accuracy_c3d)*((accuracy_Lstm)*(cross_entropy_Next + cross_entropy_multiple_Next) + (1 - accuracy_Lstm)*cross_entropy_Lstm) + (1 - accuracy_c3d) * cross_entropy_c3d
+                        cross_entropy = (accuracy_c3d)*(cross_entropy_Next + cross_entropy_multiple_Next+ cross_entropy_Lstm) + (1 - accuracy_c3d) * cross_entropy_c3d
 
                     self.cross_entropy_list.append(cross_entropy)
                     self.accuracy_c3d_list.append(accuracy_c3d)
                     self.accuracy_Lstm_list.append(accuracy_Lstm)
                     self.accuracy_Lstm_next_list.append(accuracy_Lstm_next)
+                    self.accuracy_Lstm_multiple_next_list.append(accuracy_Lstm_multiple_next)
                     self.cross_entropy_Lstm_list.append(cross_entropy_Lstm)
                     self.cross_entropy_Next_list.append(cross_entropy_Next)
+                    self.cross_entropy_multiple_Next_list.append(cross_entropy_multiple_Next)
                     self.cross_entropy_c3d_list.append(cross_entropy_c3d)
 
         with tf.name_scope("Optimizer"):
@@ -293,18 +323,50 @@ class Training:
             # tf.summary.histogram("h_out", self.h_out)
             # tf.summary.histogram("c_in", self.c_input)
             # tf.summary.histogram("h_in", self.h_input)
-            #
-            # tf.summary.histogram("Lstm_classification", self.predictions_Lstm)
-            # tf.summary.histogram("C3d_classification", self.predictions_c3d)
-            # tf.summary.histogram("Next_prediction", self.predictions_Lstm_next)
-            # tf.summary.histogram("labels_argmax", argmax_labels)
-            # tf.summary.histogram("Next_argmax", argmax_labels_next)
+            j = 0
+            for Net in Networks:
+                if j == 0:
+                    conc_Lstm_classification = Networks[Net].predictions_Lstm
+                    conc_predictions_c3d = Networks[Net].predictions_c3d
+                    conc_predictions_Lstm_next = Networks[Net].predictions_Lstm_next
+                    conc_output_multiple_next_label = Networks[Net].output_multiple_next_label
+                    conc_predictions_Lstm = Networks[Net].predictions_Lstm
+                    conc_labels = Networks[Net].labels
+                    conc_next_labels = Networks[Net].next_labels
+                    conc_multiple_next_labels = Networks[Net].multiple_next_labels
+                else:
+                    conc_Lstm_classification = tf.concat([conc_Lstm_classification,Networks[Net].predictions_Lstm], axis=0)
+                    conc_predictions_c3d = tf.concat([conc_predictions_c3d,Networks[Net].predictions_c3d], axis=0)
+                    conc_predictions_Lstm_next = tf.concat([conc_predictions_Lstm_next,Networks[Net].predictions_Lstm_next], axis=0)
+                    conc_output_multiple_next_label = tf.concat([conc_output_multiple_next_label,Networks[Net].output_multiple_next_label], axis=0)
+                    conc_predictions_Lstm = tf.concat([conc_predictions_Lstm,Networks[Net].predictions_Lstm], axis=0)
+                    conc_labels = tf.concat([conc_labels,Networks[Net].labels], axis=0)
+                    conc_next_labels = tf.concat([conc_next_labels,Networks[Net].next_labels], axis=0)
+                    conc_multiple_next_labels = tf.concat([conc_multiple_next_labels,Networks[Net].multiple_next_labels], axis=0)
+                j += 1
+
+            tf.summary.histogram("Lstm_classification", conc_predictions_Lstm)
+            tf.summary.histogram("C3d_classification", conc_predictions_c3d)
+            tf.summary.histogram("Next_prediction", conc_predictions_Lstm_next)
+            tf.summary.histogram("Multiple_Next_prediction", conc_output_multiple_next_label)
+            casted_labels = tf.cast(conc_labels, tf.int64)
+            argmax_labels = tf.argmax(casted_labels, axis=1)
+            casted_labels_next = tf.cast(conc_next_labels, tf.int64)
+            argmax_labels_next = tf.argmax(casted_labels_next, axis=1)
+            check_value = tf.constant([1], tf.int32)
+            casted_multiple_next_labels = tf.cast(conc_multiple_next_labels, tf.int32)
+            label_multiple_next = tf.where(tf.greater(casted_multiple_next_labels, 0))[:,1]
+            tf.summary.histogram("labels_argmax", argmax_labels)
+            tf.summary.histogram("multiple_next_argmax", label_multiple_next)
+            tf.summary.histogram("Next_argmax", argmax_labels_next)
 
             tf.summary.scalar('C3d_accuracy', sum(self.accuracy_c3d_list)/len(self.accuracy_c3d_list))
             tf.summary.scalar('Lstm_accuracy', sum(self.accuracy_Lstm_list)/len(self.accuracy_Lstm_list))
             tf.summary.scalar('Next_accuracy', sum(self.accuracy_Lstm_next_list)/len(self.accuracy_Lstm_next_list))
+            tf.summary.scalar('Multiple_Next_accuracy', sum(self.accuracy_Lstm_multiple_next_list)/len(self.accuracy_Lstm_multiple_next_list))
             tf.summary.scalar('Lstm_loss', sum(self.cross_entropy_Lstm_list)/len(self.cross_entropy_Lstm_list))
             tf.summary.scalar('Next_loss', sum(self.cross_entropy_Next_list)/len(self.cross_entropy_Next_list))
+            tf.summary.scalar('multiple_Next_loss', sum(self.cross_entropy_multiple_Next_list)/len(self.cross_entropy_multiple_Next_list))
             tf.summary.scalar('C3d_Loss', sum(self.cross_entropy_c3d_list)/len(self.cross_entropy_c3d_list))
 
             self.merged = tf.summary.merge_all()

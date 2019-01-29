@@ -12,7 +12,8 @@ load_previous_weigth = True
 load_pretrained_weigth = True
 model_filename = './checkpoint/Net_weigths.model'
 tot_steps = 1000000
-tasks = 6
+processes = 20
+tasks = 10
 reuse_HSM = True
 Action = True
 
@@ -45,7 +46,7 @@ validation_fraction = 0.2
 
 #[Annotation]
 rebuild = True
-limit_classes = True
+limit_classes = False
 classes_to_use = ['milk', 'caffe']
 ocado_annotation = 'dataset/ocado.json'
 breakfast_annotation = 'dataset/breakfast.json'
