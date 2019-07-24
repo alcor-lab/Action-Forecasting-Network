@@ -16,7 +16,7 @@ class OpenPose:
         self.net_out_1 = self.graph.get_tensor_by_name("Openpose/MConv_Stage6_L1_5_pointwise/BatchNorm/FusedBatchNorm:0")
         self.net_out_2 = self.graph.get_tensor_by_name('Openpose/MConv_Stage6_L2_5_pointwise/BatchNorm/FusedBatchNorm:0')
 
-        self.multi_openPose()
+        # self.multi_openPose()
 
     def load_openpose_weights(self):
         with tf.name_scope('OpenPose_Loader'):
